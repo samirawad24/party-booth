@@ -105,15 +105,24 @@
 <section class="screen paper review" id="review" hidden>
   <div class="print-wrap" id="print-wrap">
     <img class="print" id="print" alt="Your photo booth print">
+    <canvas class="print" id="anim" aria-label="Your boomerang" hidden></canvas>
+    <div class="sticker-layer" id="sticker-layer"></div>
   </div>
   <aside class="panel">
     <div class="panel-head">
-      <h2 class="title small">Pick a style</h2>
+      <div class="tabs" id="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="style" aria-selected="true">Style</button>
+        <button type="button" role="tab" data-tab="filter" aria-selected="false">Filter</button>
+        <button type="button" role="tab" data-tab="stickers" aria-selected="false">Stickers</button>
+      </div>
       <button class="text-btn" id="edit-words" type="button">Change words</button>
     </div>
-    <div class="themes" id="themes"></div>
-    <p class="label">Filter</p>
-    <div class="filters mini" id="review-filters"></div>
+    <div class="tab-body" data-tab="style"><div class="themes" id="themes"></div></div>
+    <div class="tab-body" data-tab="filter" hidden><div class="filters mini" id="review-filters"></div></div>
+    <div class="tab-body" data-tab="stickers" hidden>
+      <div class="sticker-tray" id="sticker-tray"></div>
+      <p class="tab-help">Tap one to add it. Drag to move. Pinch or pull the corner dot to resize and turn.</p>
+    </div>
     <div class="actions">
       <button class="btn ghost" id="retake" type="button">Retake</button>
       <button class="btn primary" id="done" type="button">Done</button>
@@ -125,18 +134,39 @@
   <div class="share-print"><img id="share-img" alt="Your print"></div>
   <div class="share-panel">
     <h2 class="title small">Looking good</h2>
-    <p class="share-sub">Save it to your photos or send it to the group chat.</p>
+    <div class="switch" id="switch" hidden>
+      <button type="button" data-show="print" aria-pressed="true">Photo</button>
+      <button type="button" data-show="gif" aria-pressed="false">GIF</button>
+    </div>
+    <p class="share-sub" id="share-sub">Save it to your photos or send it to the group chat.</p>
     <button class="btn primary" id="save-print" type="button">Save or share</button>
+    <div class="share-row">
+      <button class="btn ghost" id="make-gif" type="button">Make a GIF</button>
+      <button class="btn ghost" id="show-qr" type="button">QR code</button>
+    </div>
     <button class="btn ghost" id="again" type="button">Take more</button>
     <a class="text-btn" id="download-print" href="#">Download instead</a>
     <p class="note" id="share-note" role="status"></p>
   </div>
 </section>
 
+<div class="qr-modal" id="qr-modal" hidden>
+  <div class="qr-box">
+    <h2 class="title small">Scan to take it home</h2>
+    <canvas id="qr" aria-label="QR code for your photo"></canvas>
+    <p class="qr-status" id="qr-status"></p>
+    <div class="qr-actions">
+      <button class="btn ghost" id="qr-retry" type="button" hidden>Try again</button>
+      <button class="btn primary" id="qr-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="flash" id="flash"></div>
 <video id="video" playsinline muted autoplay></video>
 <p class="version" id="version"></p>
 
+<script src="vendor/qrcode.js"></script>
 <script type="module" src="booth.js"></script>
 </body>
 </html>

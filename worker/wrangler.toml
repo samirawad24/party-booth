@@ -1,0 +1,12 @@
+name = "party-booth"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+# Pages allowed to upload. localhost is for testing the booth on a PC.
+ALLOWED_ORIGINS = "https://samirawad24.github.io,http://localhost:8765"
+
+[[kv_namespaces]]
+binding = "PHOTOS"
+id = "8a00cc964de94fdeb6122fb0144d93b1"

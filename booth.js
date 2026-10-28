@@ -1,13 +1,18 @@
 import { LAYOUTS, LAYOUT_ORDER, THEME_ORDER, THEME_NAMES, FILTERS, FILTER_ORDER, PROMPTS,
-  COUNTDOWN, MAX_TITLE, MAX_SUB, DEFAULTS } from './config.js';
+  COUNTDOWN, MAX_TITLE, MAX_SUB, DEFAULTS, BURST_FRAMES, BURST_MS, BOOM_FRAME_MS, GIF_SCALE, FLIP_MS, API_URL } from './config.js';
 import { createRenderer, cropFor } from './filters.js';
 import { cells, compose, fontsReady } from './compose.js';
 import { settings, update, shareLink, titleText, subText } from './settings.js';
+import { STICKER_ORDER, drawStickers, stickerCanvas } from './stickers.js';
+import { createStickerLayer } from './sticker-layer.js';
+import { makeGif } from './gif.js';
 import * as sound from './sound.js';
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 // Prints match the mirrored preview, which is what people expect to see.
 const MIRROR = true;
+// Boomerang preview size on the review screen, as a share of print size.
+const ANIM_SCALE = 0.5;
 
 const $ = (id) => document.getElementById(id);
 const screens = ['welcome', 'custom', 'layout', 'camera', 'review', 'share'];
@@ -18,6 +23,7 @@ const frame = $('frame');
 const preview = createRenderer(view);
 const output = createRenderer(document.createElement('canvas'));
 const thumbs = createRenderer(document.createElement('canvas'));
+const stickers = createStickerLayer($('sticker-layer'));
 
 const state = {
   screen: 'welcome',
@@ -31,11 +37,16 @@ const state = {
   rendered: {},
   printBlob: null,
   printUrl: null,
+  // Boomerang preview frames for the current style and filter.
+  animFrames: [],
+  // Share screen: the finished photo, an optional GIF, and which one shows.
+  out: { print: null, gif: null, showing: 'print' },
   // Where the Customize screen goes back to.
   customFrom: 'welcome',
 };
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const moving = () => !!LAYOUTS[state.layout].moving;
 
 function canvas(w, h) {
   const c = document.createElement('canvas');
@@ -60,6 +71,7 @@ function show(name) {
   state.screen = name;
   if (name === 'camera') startPreview();
   else stopPreview();
+  if (name !== 'review') stopAnim();
 }
 
 // Keep the screen on while the booth runs.
@@ -288,6 +300,23 @@ async function capture() {
   return raw;
 }
 
+// Boomerang: a quick burst of frames while everyone moves.
+async function burst(alive) {
+  const frames = [];
+  setCount('Move!', 'word');
+  $('frame').classList.add('rec');
+  sound.shutter();
+  for (let i = 0; i < BURST_FRAMES; i++) {
+    if (!alive()) break;
+    const t = performance.now();
+    frames.push(grab());
+    await wait(Math.max(0, BURST_MS - (performance.now() - t)));
+  }
+  $('frame').classList.remove('rec');
+  setCount('');
+  return frames;
+}
+
 function setShootingUI(on) {
   state.shooting = on;
   $('filters').hidden = on;
@@ -311,23 +340,32 @@ async function shootSession() {
   const ideas = settings.prompts ? shuffle(PROMPTS).slice(0, n) : null;
   state.shots = [];
   state.rendered = {};
+  stickers.clear();
   buildTray(n);
   $('tray').children[0]?.classList.add('next');
   setShootingUI(true);
 
   for (let i = 0; i < n; i++) {
-    $('progress').textContent = `Photo ${i + 1} of ${n}`;
+    $('progress').textContent = moving() ? 'Boomerang' : `Photo ${i + 1} of ${n}`;
     if (ideas) {
       setCount(ideas[i], 'prompt');
       sound.tap();
       await wait(2200);
     } else if (i === 0) {
-      setCount('Get ready', 'word');
+      setCount(moving() ? 'Get moving' : 'Get ready', 'word');
       await wait(1300);
     }
     if (!alive()) return;
     await countdown(alive);
     if (!alive()) return;
+    if (moving()) {
+      const frames = await burst(alive);
+      if (!alive()) return;
+      // One seed for every frame keeps film grain still between frames.
+      state.shots = frames.map((raw) => ({ raw, seed: 11 }));
+      fillSlot(0, frames[0]);
+      break;
+    }
     const raw = await capture();
     if (!alive()) return;
     state.shots.push({ raw, seed: Math.random() * 500 });
@@ -345,7 +383,7 @@ async function shootSession() {
   setCount('');
   setShootingUI(false);
   $('progress').textContent = '';
-  if (state.shots.length < n) {
+  if (!state.shots.length || (!moving() && state.shots.length < n)) {
     state.shots = [];
     return;
   }
@@ -382,10 +420,46 @@ function renderCells(filterId) {
 
 const toBlob = (c, q = 0.92) => new Promise((r) => c.toBlob(r, 'image/jpeg', q));
 
+// Boomerang frames played forward then back, without repeating the ends.
+function pingPong(list) {
+  return list.length < 3 ? list : [...list, ...list.slice(1, -1).reverse()];
+}
+
+let animRaf = 0;
+function stopAnim() {
+  cancelAnimationFrame(animRaf);
+  animRaf = 0;
+}
+
+function playAnim() {
+  stopAnim();
+  const c = $('anim');
+  const seq = pingPong(state.animFrames);
+  if (!seq.length) return;
+  c.width = seq[0].width;
+  c.height = seq[0].height;
+  const ctx = c.getContext('2d');
+  let last = -1;
+  const step = (t) => {
+    animRaf = requestAnimationFrame(step);
+    const i = Math.floor(t / BOOM_FRAME_MS) % seq.length;
+    if (i === last) return;
+    last = i;
+    ctx.drawImage(seq[i], 0, 0);
+  };
+  animRaf = requestAnimationFrame(step);
+}
+
 let renderToken = 0;
 async function renderPrint() {
   const token = ++renderToken;
   const cellsDone = renderCells(state.filter);
+  if (moving()) {
+    state.animFrames = cellsDone.map((f) => compose(state.layout, state.theme, [f], undefined, ANIM_SCALE));
+    playAnim();
+    fitPrint();
+    return;
+  }
   const print = compose(state.layout, state.theme, cellsDone);
   const blob = await toBlob(print);
   if (token !== renderToken || !blob) return;
@@ -396,15 +470,20 @@ async function renderPrint() {
   fitPrint();
 }
 
+function printTarget() {
+  return moving() ? $('anim') : $('print');
+}
+
 function fitPrint() {
   const wrap = $('print-wrap');
   const L = LAYOUTS[state.layout];
-  const img = $('print');
+  const el = printTarget();
   const maxW = wrap.clientWidth, maxH = wrap.clientHeight;
   let h = maxH, w = h * (L.W / L.H);
   if (w > maxW) { w = maxW; h = w * (L.H / L.W); }
-  img.style.width = `${Math.floor(w)}px`;
-  img.style.height = `${Math.floor(h)}px`;
+  el.style.width = `${Math.floor(w)}px`;
+  el.style.height = `${Math.floor(h)}px`;
+  stickers.place(el);
 }
 
 // Style pickers: the review screen and the Customize screen both use this.
@@ -446,7 +525,39 @@ function pickReviewTheme(id) {
   renderPrint();
 }
 
+function showTab(name) {
+  for (const b of $('tabs').children) b.setAttribute('aria-selected', b.dataset.tab === name);
+  for (const body of document.querySelectorAll('.tab-body')) body.hidden = body.dataset.tab !== name;
+  if (name !== 'stickers') stickers.deselect();
+}
+
+for (const b of $('tabs').children) {
+  b.addEventListener('click', () => { sound.tap(); showTab(b.dataset.tab); });
+}
+
+function buildStickerTray() {
+  const tray = $('sticker-tray');
+  tray.innerHTML = '';
+  for (const kind of STICKER_ORDER) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sticker-pick';
+    b.setAttribute('aria-label', `Add ${kind} sticker`);
+    b.append(stickerCanvas(kind, 56));
+    b.addEventListener('click', () => {
+      sound.tap();
+      // A good starting size: about 40% of one photo's width.
+      const L = LAYOUTS[state.layout];
+      stickers.add(kind, (0.4 * cells(state.layout).cw) / L.W);
+    });
+    tray.append(b);
+  }
+}
+
 async function openReview() {
+  const isMoving = moving();
+  $('print').hidden = isMoving;
+  $('anim').hidden = !isMoving;
   buildThemes($('themes'), state.theme, pickReviewTheme);
   buildFilterButtons($('review-filters'), (id) => {
     state.filter = id;
@@ -454,6 +565,7 @@ async function openReview() {
     drawThemeThumbs($('themes'), state.layout, renderCells(state.filter));
     renderPrint();
   });
+  showTab('style');
   show('review');
   drawReviewFilterThumbs();
   drawThemeThumbs($('themes'), state.layout, renderCells(state.filter));
@@ -471,37 +583,134 @@ $('retake').addEventListener('click', () => {
   sound.tap();
   state.shots = [];
   state.rendered = {};
+  stickers.clear();
   openCamera();
 });
 
 $('edit-words').addEventListener('click', () => { sound.tap(); openCustom('review'); });
 
-$('done').addEventListener('click', async () => {
-  sound.tap();
-  if (!state.printBlob) await renderPrint();
-  if (!state.printBlob) return;
-  sound.chime();
-  openShare();
-});
+// Finished pieces
 
-// Save and share the finished print
-
-function fileName() {
+function stamp() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-photo-booth-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-photo-booth-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-let shareFile = null;
+// The full-size photo with stickers baked in.
+async function bakePrint(frameIndex = 0) {
+  const L = LAYOUTS[state.layout];
+  const cellsDone = renderCells(state.filter);
+  const photos = moving() ? [cellsDone[frameIndex]] : cellsDone;
+  const c = compose(state.layout, state.theme, photos);
+  drawStickers(c.getContext('2d'), L.W, L.H, stickers.list());
+  return toBlob(c);
+}
 
-function openShare() {
-  shareFile = new File([state.printBlob], fileName(), { type: 'image/jpeg' });
-  $('share-img').src = state.printUrl;
+async function boomGif(onProgress) {
+  const list = stickers.list();
+  const frames = renderCells(state.filter).map((f) => {
+    const c = compose(state.layout, state.theme, [f], undefined, GIF_SCALE);
+    drawStickers(c.getContext('2d'), c.width, c.height, list);
+    return c;
+  });
+  return makeGif(pingPong(frames), BOOM_FRAME_MS, onProgress);
+}
+
+// Photo GIF of a still layout: each photo in turn, in the boomerang frame.
+async function flipGif(onProgress) {
+  const g = cells('boom');
+  const aspect = g.cw / g.ch;
+  const frames = renderCells(state.filter).map((f) => {
+    // Crop each photo to the frame's shape before laying it in.
+    const [cx, cy, cw, ch] = cropFor(f.width, f.height, aspect);
+    const cell = canvas(g.cw, g.ch);
+    cell.getContext('2d').drawImage(f, cx * f.width, cy * f.height, cw * f.width, ch * f.height, 0, 0, g.cw, g.ch);
+    return compose('boom', state.theme, [cell], undefined, GIF_SCALE);
+  });
+  return makeGif(frames, FLIP_MS, onProgress);
+}
+
+function busy(btn, text) {
+  const was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = text;
+  return (label = was) => {
+    btn.disabled = false;
+    btn.textContent = label;
+  };
+}
+
+$('done').addEventListener('click', async () => {
+  sound.tap();
+  stickers.deselect();
+  const done = busy($('done'), moving() ? 'Making GIF' : 'Saving');
+  try {
+    const print = new File([await bakePrint()], `${stamp()}.jpg`, { type: 'image/jpeg' });
+    let gif = null;
+    if (moving()) {
+      const blob = await boomGif((p) => { $('done').textContent = `Making GIF ${Math.round(p * 100)}%`; });
+      gif = new File([blob], `${stamp()}.gif`, { type: 'image/gif' });
+    }
+    sound.chime();
+    openShare(print, gif);
+  } finally {
+    done();
+  }
+});
+
+// Share screen
+
+let urls = [];
+let upload = null;
+
+function setOutput(print, gif) {
+  urls.forEach((u) => URL.revokeObjectURL(u));
+  urls = [];
+  const url = (f) => {
+    if (!f) return null;
+    const u = URL.createObjectURL(f);
+    urls.push(u);
+    return u;
+  };
+  state.out = { print: { file: print, url: url(print) }, gif: gif ? { file: gif, url: url(gif) } : null, showing: gif ? 'gif' : 'print' };
+  // A new photo or GIF needs a new QR link.
+  upload = null;
+}
+
+function current() {
+  return state.out[state.out.showing] || state.out.print;
+}
+
+function renderShare() {
+  const cur = current();
+  $('share-img').src = cur.url;
   const dl = $('download-print');
-  dl.href = state.printUrl;
-  dl.download = shareFile.name;
+  dl.href = cur.url;
+  dl.download = cur.file.name;
+  const both = !!state.out.gif && !moving();
+  $('switch').hidden = !both;
+  for (const b of $('switch').children) b.setAttribute('aria-pressed', b.dataset.show === state.out.showing);
+  $('make-gif').hidden = moving() || !!state.out.gif;
+  $('show-qr').hidden = !API_URL;
+  $('share-sub').textContent = state.out.showing === 'gif'
+    ? 'Save the GIF to your photos or send it to the group chat.'
+    : 'Save it to your photos or send it to the group chat.';
+}
+
+function openShare(print, gif) {
+  setOutput(print, gif);
   $('share-note').textContent = '';
+  renderShare();
   show('share');
+}
+
+for (const b of $('switch').children) {
+  b.addEventListener('click', () => {
+    sound.tap();
+    state.out.showing = b.dataset.show;
+    renderShare();
+  });
 }
 
 function canShareFile(file) {
@@ -511,27 +720,118 @@ function canShareFile(file) {
 $('save-print').addEventListener('click', async () => {
   sound.tap();
   const note = $('share-note');
-  if (!shareFile) return;
-  if (canShareFile(shareFile)) {
+  const { file } = current();
+  if (canShareFile(file)) {
     try {
-      await navigator.share({ files: [shareFile] });
+      await navigator.share({ files: [file] });
       note.textContent = 'Saved. Take another one?';
     } catch (err) {
-      if (err?.name !== 'AbortError') note.textContent = 'Sharing did not open. Press and hold the photo to save it.';
+      if (err?.name !== 'AbortError') note.textContent = 'Sharing did not open. Press and hold the picture to save it.';
     }
     return;
   }
   $('download-print').click();
-  note.textContent = 'Downloading your photo.';
+  note.textContent = 'Downloading.';
+});
+
+$('make-gif').addEventListener('click', async () => {
+  sound.tap();
+  const done = busy($('make-gif'), 'Making GIF');
+  try {
+    const blob = await flipGif((p) => { $('make-gif').textContent = `Making ${Math.round(p * 100)}%`; });
+    const print = state.out.print.file;
+    setOutput(print, new File([blob], print.name.replace(/\.jpg$/, '.gif'), { type: 'image/gif' }));
+    sound.chime();
+    renderShare();
+  } catch {
+    $('share-note').textContent = 'The GIF did not work on this device.';
+  } finally {
+    done();
+  }
 });
 
 $('again').addEventListener('click', () => {
   sound.tap();
   state.shots = [];
   state.rendered = {};
+  state.animFrames = [];
   state.printBlob = null;
+  stickers.clear();
   openLayouts();
 });
+
+// QR code: uploads the photo (and GIF) on request, then shows a code that
+// opens a page where the phone can save them. Links expire after 14 days.
+
+function drawQr(text) {
+  const qr = window.qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  const quiet = 3;
+  const c = $('qr');
+  const size = c.clientWidth || 260;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const px = Math.floor((size * dpr) / (n + quiet * 2));
+  c.width = c.height = px * (n + quiet * 2);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#1B1512';
+  for (let r = 0; r < n; r++) {
+    for (let col = 0; col < n; col++) {
+      if (qr.isDark(r, col)) ctx.fillRect((col + quiet) * px, (r + quiet) * px, px, px);
+    }
+  }
+  c.classList.add('ready');
+}
+
+async function sendOnline() {
+  const form = new FormData();
+  form.append('photo', state.out.print.file);
+  if (state.out.gif) form.append('gif', state.out.gif.file);
+  form.append('title', titleText());
+  form.append('sub', subText());
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(`${API_URL}/api/print`, { method: 'POST', body: form, signal: ctrl.signal });
+    if (res.status === 429) throw new Error('Too many uploads in a row. Wait a minute and try again.');
+    if (!res.ok) throw new Error('The upload did not go through. Try again.');
+    const data = await res.json();
+    return `${API_URL}/p/${data.id}`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function openQr() {
+  const modal = $('qr-modal');
+  const c = $('qr');
+  const status = $('qr-status');
+  modal.hidden = false;
+  $('qr-retry').hidden = true;
+  c.classList.remove('ready');
+  c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  status.textContent = state.out.gif ? 'Uploading your photo and GIF...' : 'Uploading your photo...';
+  try {
+    if (!upload) upload = sendOnline();
+    const link = await upload;
+    if (modal.hidden) return;
+    drawQr(link);
+    status.textContent = 'Point a phone camera at the code. The link works for 2 weeks.';
+  } catch (err) {
+    upload = null;
+    status.textContent = !navigator.onLine
+      ? 'No internet right now. Connect and try again.'
+      : (err.name === 'AbortError' ? 'The connection is slow. Try again.' : err.message);
+    $('qr-retry').hidden = false;
+  }
+}
+
+$('show-qr').addEventListener('click', () => { sound.tap(); openQr(); });
+$('qr-retry').addEventListener('click', () => { sound.tap(); openQr(); });
+$('qr-close').addEventListener('click', () => { sound.tap(); $('qr-modal').hidden = true; });
 
 // Layout choice
 
@@ -570,6 +870,7 @@ function openCamera() {
   markFilter($('filters'));
   setShootingUI(false);
   $('progress').textContent = '';
+  $('hint').textContent = moving() ? 'Keep moving when it says go' : 'Look at the camera';
   setCount('');
   show('camera');
 }
@@ -718,6 +1019,7 @@ async function boot() {
   showWelcome();
   await fontsReady();
   buildFilterButtons($('filters'), (id) => { state.filter = id; markFilter($('filters')); });
+  buildStickerTray();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 

@@ -243,17 +243,25 @@ export function spray(ctx, cx, cy, span, opts) {
   sprig(ctx, cx + span * 0.008, cy, len, -0.22, { ...opts, side: -1 });
 }
 
+// Built once per strength and seeded, so GIF frames share the same grain
+// (moving noise would flicker and bloat the file).
+const paperTiles = new Map();
 function paper(ctx, W, H, strength) {
-  const tile = document.createElement('canvas');
-  tile.width = tile.height = 256;
-  const t = tile.getContext('2d');
-  const img = t.createImageData(256, 256);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = Math.random() < 0.5 ? 0 : 255;
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-    img.data[i + 3] = Math.random() * 255 * strength;
+  let tile = paperTiles.get(strength);
+  if (!tile) {
+    tile = document.createElement('canvas');
+    tile.width = tile.height = 256;
+    const t = tile.getContext('2d');
+    const img = t.createImageData(256, 256);
+    const r = rng(Math.round(strength * 1000));
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = r() < 0.5 ? 0 : 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = r() * 255 * strength;
+    }
+    t.putImageData(img, 0, 0);
+    paperTiles.set(strength, tile);
   }
-  t.putImageData(img, 0, 0);
   ctx.save();
   ctx.fillStyle = ctx.createPattern(tile, 'repeat');
   ctx.fillRect(0, 0, W, H);

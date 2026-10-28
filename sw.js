@@ -1,9 +1,9 @@
 // Network first so updates arrive right away, with a cached copy so the
 // booth still opens on a weak connection.
 
-const CACHE = 'party-booth-v1';
+const CACHE = 'party-booth-v2';
 const FILES = [
-  './', 'index.html', 'styles.css', 'booth.js', 'config.js', 'settings.js', 'filters.js', 'compose.js', 'sound.js',
+  './', 'index.html', 'styles.css', 'booth.js', 'config.js', 'settings.js', 'filters.js', 'compose.js', 'sound.js', 'stickers.js', 'sticker-layer.js', 'gif.js', 'vendor/gifenc.js', 'vendor/qrcode.js',
   'manifest.webmanifest', 'robots.txt', 'fonts/cormorant-italic.woff2', 'fonts/jost.woff2',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];

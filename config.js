@@ -30,8 +30,21 @@ export const LAYOUTS = {
   strip: { label: 'Classic strip', detail: '3 photos', cols: 1, rows: 3, W: 800, H: 2400, pad: 56, gap: 24, aspect: 6 / 5 },
   four: { label: 'Grid of four', detail: '4 photos', cols: 2, rows: 2, W: 1600, H: 2400, pad: 80, gap: 28, aspect: 4 / 5 },
   six: { label: 'Grid of six', detail: '6 photos', cols: 2, rows: 3, W: 1600, H: 2400, pad: 80, gap: 28, aspect: 5 / 4 },
+  // One moving shot that plays forward and back, saved as a GIF. Photo GIFs
+  // of the other layouts use this frame too.
+  boom: { label: 'Boomerang', detail: 'Moving GIF', cols: 1, rows: 1, W: 800, H: 1180, pad: 56, gap: 24, aspect: 4 / 5, moving: true },
 };
-export const LAYOUT_ORDER = ['strip', 'four', 'six'];
+export const LAYOUT_ORDER = ['strip', 'four', 'six', 'boom'];
+
+// Boomerang: frames grabbed in a burst, then played forward and back.
+export const BURST_FRAMES = 12;
+export const BURST_MS = 80;
+export const BOOM_FRAME_MS = 70;
+// GIF size as a share of print size. Bigger looks nicer but takes longer to
+// build on a phone and to send.
+export const GIF_SCALE = 0.6;
+// Each photo's time on screen in a photo GIF.
+export const FLIP_MS = 650;
 
 export const THEME_ORDER = ['neon', 'comic', 'retro', 'confetti', 'film', 'classic', 'cream', 'sage'];
 export const THEME_NAMES = {
@@ -99,3 +112,6 @@ export const PROMPTS = [
 ];
 
 export const COUNTDOWN = 3;
+
+// Online photo service (worker/ folder) behind the QR codes. Empty hides them.
+export const API_URL = 'https://party-booth.photobooth-worker.workers.dev';
