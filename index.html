@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#D9342B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Photo Booth">
+<meta name="description" content="A party photo booth that runs in your phone's browser.">
+<meta property="og:title" content="Photo Booth">
+<meta property="og:description" content="Open it, strike a pose, take home a strip.">
+<meta property="og:image" content="https://samirawad24.github.io/party-booth/icons/icon-512.png">
+<title>Photo Booth</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Shrikhand&family=Yellowtail&display=block">
+<link rel="preload" href="fonts/cormorant-italic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<section class="screen welcome" id="welcome">
+  <div class="welcome-inner">
+    <p class="eyebrow">Step right in</p>
+    <h1 class="headline" id="welcome-title">Photo Booth</h1>
+    <p class="subline" id="welcome-sub"></p>
+    <button class="btn primary big" id="begin" type="button">Start</button>
+    <p class="error" id="cam-error" role="alert" hidden></p>
+  </div>
+  <nav class="welcome-tools">
+    <button class="tool" id="open-custom" type="button">Customize</button>
+    <button class="tool" id="share-booth" type="button">Send this booth</button>
+  </nav>
+  <p class="welcome-note" id="welcome-note" role="status"></p>
+</section>
+
+<section class="screen paper custom" id="custom" hidden>
+  <header class="bar">
+    <button class="link" id="custom-back" type="button">Back</button>
+  </header>
+  <div class="custom-body">
+    <div class="custom-preview"><canvas id="custom-canvas" aria-label="Preview of the print"></canvas></div>
+    <form class="custom-form" id="custom-form" autocomplete="off">
+      <h2 class="title small">Make it yours</h2>
+      <label class="field">
+        <span>Big words</span>
+        <input id="f-title" type="text" autocapitalize="words" spellcheck="false" enterkeyhint="next">
+      </label>
+      <label class="field">
+        <span>Small words</span>
+        <input id="f-sub" type="text" autocapitalize="words" spellcheck="false" enterkeyhint="done">
+      </label>
+      <p class="label">Style</p>
+      <div class="themes" id="custom-themes"></div>
+      <label class="check">
+        <input id="f-prompts" type="checkbox">
+        <span>Silly pose ideas before each photo</span>
+      </label>
+      <div class="actions">
+        <button class="btn ghost" id="custom-send" type="button">Send booth</button>
+        <button class="btn primary" type="submit">Done</button>
+      </div>
+      <p class="note" id="custom-note" role="status"></p>
+    </form>
+  </div>
+</section>
+
+<section class="screen paper choose" id="layout" hidden>
+  <header class="bar">
+    <button class="link" id="layout-back" type="button">Back</button>
+  </header>
+  <h2 class="title">Pick a layout</h2>
+  <div class="layouts" id="layouts"></div>
+</section>
+
+<section class="screen dark camera" id="camera" hidden>
+  <div class="stage" id="stage">
+    <div class="frame" id="frame">
+      <canvas id="view"></canvas>
+      <div class="count" id="count" aria-live="assertive"></div>
+    </div>
+    <p class="hint" id="hint">Look at the camera</p>
+  </div>
+  <aside class="panel">
+    <div class="panel-top">
+      <button class="link light" id="cam-back" type="button">Back</button>
+      <p class="progress" id="progress"></p>
+    </div>
+    <div class="panel-body">
+      <p class="label" id="filters-label">Choose a filter</p>
+      <div class="filters" id="filters"></div>
+      <div class="tray" id="tray" hidden></div>
+    </div>
+    <button class="shutter" id="start" type="button"><span>Go</span></button>
+  </aside>
+</section>
+
+<section class="screen paper review" id="review" hidden>
+  <div class="print-wrap" id="print-wrap">
+    <img class="print" id="print" alt="Your photo booth print">
+  </div>
+  <aside class="panel">
+    <div class="panel-head">
+      <h2 class="title small">Pick a style</h2>
+      <button class="text-btn" id="edit-words" type="button">Change words</button>
+    </div>
+    <div class="themes" id="themes"></div>
+    <p class="label">Filter</p>
+    <div class="filters mini" id="review-filters"></div>
+    <div class="actions">
+      <button class="btn ghost" id="retake" type="button">Retake</button>
+      <button class="btn primary" id="done" type="button">Done</button>
+    </div>
+  </aside>
+</section>
+
+<section class="screen paper share" id="share" hidden>
+  <div class="share-print"><img id="share-img" alt="Your print"></div>
+  <div class="share-panel">
+    <h2 class="title small">Looking good</h2>
+    <p class="share-sub">Save it to your photos or send it to the group chat.</p>
+    <button class="btn primary" id="save-print" type="button">Save or share</button>
+    <button class="btn ghost" id="again" type="button">Take more</button>
+    <a class="text-btn" id="download-print" href="#">Download instead</a>
+    <p class="note" id="share-note" role="status"></p>
+  </div>
+</section>
+
+<div class="flash" id="flash"></div>
+<video id="video" playsinline muted autoplay></video>
+<p class="version" id="version"></p>
+
+<script type="module" src="booth.js"></script>
+</body>
+</html>
